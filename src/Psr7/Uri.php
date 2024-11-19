@@ -139,7 +139,7 @@ class Uri implements UriInterface
         }
 
         $this->user = $this->encode($user, $pattern);
-        if ($password === null && strlen($password) === 0) {
+        if ($password === null || strlen($password) === 0) {
             $this->password = null;
             return;
         }
@@ -330,7 +330,7 @@ class Uri implements UriInterface
             return $this;
         }
 
-        if (strlen($password) === 0) {
+        if ($password === null || strlen($password) === 0) {
             $password = null;
         }
 

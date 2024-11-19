@@ -172,7 +172,7 @@ class Stream implements StreamInterface
         if (!$this->isWritable()) {
             throw new RuntimeException("Stream is not writable");
         }
-        $result = fwrite($this->resource, $string);
+        $result = @fwrite($this->resource, $string);
         if ($result === false) {
             throw new RuntimeException("Failed to write to stream");
         }
@@ -198,7 +198,7 @@ class Stream implements StreamInterface
         if ($length <= 0) {
             return "";
         }
-        $result = fread($this->resource, $length);
+        $result = @fread($this->resource, $length);
         if ($result === false) {
             throw new RuntimeException("Failed to read from stream");
         }
