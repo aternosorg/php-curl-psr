@@ -22,7 +22,7 @@ $client = new \Aternos\CurlPsr\Psr18\Client();
 ```
 
 When creating a client, you can optionally provide a PSR-17 `ResponseFactoryInterface` instance. By default,
-the client will use the `Aternos\CurlPsr\Psr17\ResponseFactory` class included in this library.
+the client will use the `Aternos\CurlPsr\Psr17\Psr17Factory` class included in this library.
 
 Additionally, you can pass an optional `CurlHandleFactoryInterface` instance as the second argument,
 which is mainly used for testing purposes.
