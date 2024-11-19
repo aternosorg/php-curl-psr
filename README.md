@@ -1,4 +1,4 @@
-# aternos/php-curl-psr
+# aternos/curl-psr
 
 A simple PSR-18 client implementation based on cURL that actually supports
 streaming both requests and responses.
