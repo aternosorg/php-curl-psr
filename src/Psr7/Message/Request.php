@@ -32,12 +32,16 @@ class Request extends Message implements RequestInterface
             return $this->requestTarget;
         }
 
-        $this->requestTarget = $this->uri->getPath();
-        if ($this->uri->getQuery()) {
-            $this->requestTarget .= '?' . $this->uri->getQuery();
+        $target = $this->uri->getPath();
+        if ($target === "") {
+            $target = "/";
         }
 
-        return $this->requestTarget;
+        if ($this->uri->getQuery()) {
+            $target .= '?' . $this->uri->getQuery();
+        }
+
+        return $target;
     }
 
     /**
