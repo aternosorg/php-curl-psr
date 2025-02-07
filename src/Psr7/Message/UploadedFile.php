@@ -62,7 +62,7 @@ class UploadedFile implements UploadedFileInterface
             $this->stream->rewind();
         }
 
-        $target = fopen($targetPath, 'wb');
+        $target = @fopen($targetPath, 'wb');
         if ($target === false) {
             throw new RuntimeException('Target path could not be opened');
         }
