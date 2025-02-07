@@ -3,6 +3,7 @@
 namespace Tests;
 
 use Aternos\CurlPsr\Psr17\Psr17Factory;
+use Aternos\CurlPsr\Psr7\Stream\StringStream;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\StreamInterface;
@@ -66,11 +67,50 @@ class UploadedFileTest extends TestCase
         $uploadedFile->moveTo($target);
     }
 
-    public function testThrowIfStreamIsNotAFile(): void
+    public function testWriteStreamContentIfStreamIsNotAFile(): void
     {
         $stream = $this->factory->createStream('test');
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Stream uri not available');
-        $this->factory->createUploadedFile($stream, $stream->getSize(), UPLOAD_ERR_OK, "file.txt", "text/plain");
+        $upload = $this->factory->createUploadedFile($stream, $stream->getSize(), UPLOAD_ERR_OK, "file.txt", "text/plain");
+
+        $this->target = tempnam(sys_get_temp_dir(), 'test');
+        $upload->moveTo($this->target);
+
+        $this->assertFileExists($this->target);
+        $this->assertEquals('test', file_get_contents($this->target));
+    }
+
+    public function testThrowIfWriteTargetCannotBeOpened(): void
+    {
+        $stream = $this->factory->createStream('test');
+        $upload = $this->factory->createUploadedFile($stream, $stream->getSize(), UPLOAD_ERR_OK, "file.txt", "text/plain");
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Target path could not be opened');
+        $upload->moveTo(sys_get_temp_dir() . "/non-existing-dir/file.txt");
+    }
+
+    public function testRewindStreamIfNecessary(): void
+    {
+        $stream = $this->factory->createStream('test');
+        $stream->read(1);
+        $upload = $this->factory->createUploadedFile($stream, $stream->getSize(), UPLOAD_ERR_OK, "file.txt", "text/plain");
+
+        $this->target = tempnam(sys_get_temp_dir(), 'test');
+        $upload->moveTo($this->target);
+
+        $this->assertFileExists($this->target);
+        $this->assertEquals('test', file_get_contents($this->target));
+    }
+
+    public function testThrowIfStreamNeedsRewindButIsNotSeekable(): void
+    {
+        $stream = new StringStream('test', false);
+        $stream->read(1);
+        $upload = $this->factory->createUploadedFile($stream, $stream->getSize(), UPLOAD_ERR_OK, "file.txt", "text/plain");
+        $this->target = tempnam(sys_get_temp_dir(), 'test');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Stream needs to be rewound, but is not seekable');
+        $upload->moveTo($this->target);
     }
 }

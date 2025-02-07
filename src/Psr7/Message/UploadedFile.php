@@ -6,11 +6,11 @@ use InvalidArgumentException;
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use RuntimeException;
+use Throwable;
 
 class UploadedFile implements UploadedFileInterface
 {
     protected bool $moved = false;
-    protected string $filePath;
 
     /**
      * @param StreamInterface $stream
@@ -27,11 +27,6 @@ class UploadedFile implements UploadedFileInterface
         protected ?string         $clientMediaType = null
     )
     {
-        $file = $this->stream->getMetadata('uri');
-        if ($file === null) {
-            throw new InvalidArgumentException('Stream uri not available');
-        }
-        $this->filePath = $file;
     }
 
     /**
@@ -50,9 +45,36 @@ class UploadedFile implements UploadedFileInterface
         if ($this->moved) {
             throw new RuntimeException('Uploaded file already moved');
         }
-        if (!@rename($this->filePath, $targetPath)) {
-            throw new RuntimeException('Uploaded file could not be moved');
+
+        $filePath = $this->stream->getMetadata('uri');
+        if ($filePath !== null) {
+            if (!@rename($filePath, $targetPath)) {
+                throw new RuntimeException('Uploaded file could not be moved');
+            }
+            $this->moved = true;
+            return;
         }
+
+        if ($this->stream->tell() !== 0) {
+            if (!$this->stream->isSeekable()) {
+                throw new RuntimeException('Stream needs to be rewound, but is not seekable');
+            }
+            $this->stream->rewind();
+        }
+
+        $target = fopen($targetPath, 'wb');
+        if ($target === false) {
+            throw new RuntimeException('Target path could not be opened');
+        }
+
+        try {
+            while (!$this->stream->eof()) {
+                fwrite($target, $this->stream->read(4096));
+            }
+        } finally {
+            fclose($target);
+        }
+
         $this->moved = true;
     }
 
