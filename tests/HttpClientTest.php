@@ -144,6 +144,33 @@ class HttpClientTest extends HttpClientTestCase
         $this->client->sendRequest($request);
     }
 
+    public function testRequestBodyStreamCanReturnEmptyChunks(): void
+    {
+        $requestBody = new PredefinedChunkStream([
+            "something",
+            "",
+            "else"
+        ]);
+
+        $chunks = [];
+        $this->curlHandle->setOnAfterRead(function ($chunk) use (&$chunks) {
+            $chunks[] = $chunk;
+        });
+
+        $request = $this->requestFactory->createRequest("POST", "https://example.com")
+            ->withBody($requestBody);
+
+        $this->client->sendRequest($request);
+
+        // Last chunk is empty
+        $this->assertEmpty(array_pop($chunks));
+
+        // No empty chunks in between
+        foreach ($chunks as $chunk) {
+            $this->assertNotEmpty($chunk);
+        }
+    }
+
     #[TestWith([CURLE_COULDNT_CONNECT, "CURLE_COULDNT_CONNECT"], "CURLE_COULDNT_CONNECT")]
     #[TestWith([CURLE_COULDNT_RESOLVE_HOST, "CURLE_COULDNT_RESOLVE_HOST"], "CURLE_COULDNT_RESOLVE_HOST")]
     #[TestWith([CURLE_COULDNT_RESOLVE_PROXY, "CURLE_COULDNT_RESOLVE_PROXY"], "CURLE_COULDNT_RESOLVE_PROXY")]

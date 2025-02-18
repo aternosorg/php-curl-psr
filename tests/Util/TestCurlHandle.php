@@ -71,7 +71,7 @@ class TestCurlHandle implements CurlHandleInterface
                 $chunk = $this->options[CURLOPT_READFUNCTION](null, $this->options[CURLOPT_INFILE] ?? null, 8192);
                 $this->requestBodySink?->write($chunk);
                 $uploaded += strlen($chunk);
-                $this->onAfterRead?->call($this);
+                $this->onAfterRead?->call($this, $chunk);
                 $this->progressUpdate(0, 0, $this->getRequestHeader("Content-Length") ?? 0, $uploaded);
             } while (strlen($chunk) > 0);
         }

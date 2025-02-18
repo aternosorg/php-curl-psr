@@ -126,7 +126,7 @@ class PredefinedChunkStream implements StreamInterface
      */
     public function read(int $length): string
     {
-        while (strlen($this->buffer) === 0 && count($this->chunks) > 0) {
+        if (strlen($this->buffer) === 0 && count($this->chunks) > 0) {
             $chunk = array_shift($this->chunks);
             if ($chunk instanceof Throwable) {
                 throw $chunk;

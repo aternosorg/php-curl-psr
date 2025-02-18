@@ -85,7 +85,10 @@ class Client implements ClientInterface
 
         $ch->setopt(CURLOPT_UPLOAD, true);
         $ch->setopt(CURLOPT_READFUNCTION, function ($ch, $fd, $length) use ($requestBody) {
-            return $requestBody->read($length);
+            do {
+                $chunk = $requestBody->read($length);
+            } while ($chunk === "" && $requestBody->eof() === false);
+            return $chunk;
         });
 
         $ch->setopt(CURLOPT_WRITEFUNCTION, /** @throws Throwable */ function ($ch, $data) {
