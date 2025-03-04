@@ -105,13 +105,16 @@ class HttpClientTest extends HttpClientTestCase
         $this->assertEquals("GET", $this->curlHandle->getOption(CURLOPT_CUSTOMREQUEST));
     }
 
-    public function testForceHttp10(): void
+    #[TestWith(["1.0", CURL_HTTP_VERSION_1_0])]
+    #[TestWith(["1.1", CURL_HTTP_VERSION_1_1])]
+    #[TestWith(["2.0", CURL_HTTP_VERSION_2_0])]
+    public function testHttpProtocolVersions(string $versionString, int $curlValue): void
     {
         $request = $this->requestFactory->createRequest("GET", "https://example.com")
-            ->withProtocolVersion("1.0");
+            ->withProtocolVersion($versionString);
         $this->client->sendRequest($request);
 
-        $this->assertEquals(CURL_HTTP_VERSION_1_0, $this->curlHandle->getOption(CURLOPT_HTTP_VERSION));
+        $this->assertEquals($curlValue, $this->curlHandle->getOption(CURLOPT_HTTP_VERSION));
     }
 
     public function testRemoveEncodingAndLengthHeaderForEncodedResponse(): void
