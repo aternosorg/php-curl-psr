@@ -74,6 +74,10 @@ class Client implements ClientInterface
 
         if ($request->getProtocolVersion() === "1.0") {
             $ch->setopt(CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_0);
+        } else if ($request->getProtocolVersion() === "1.1") {
+            $ch->setopt(CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+        } else if ($request->getProtocolVersion() === "2.0") {
+            $ch->setopt(CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_0);
         }
 
         $requestBody = $request->getBody();
