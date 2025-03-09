@@ -21,11 +21,10 @@ implementations for [PSR-17 (HTTP Factories)](https://www.php-fig.org/psr/psr-17
 $client = new \Aternos\CurlPsr\Psr18\Client();
 ```
 
-When creating a client, you can optionally provide a PSR-17 `ResponseFactoryInterface` instance. By default,
-the client will use the `Aternos\CurlPsr\Psr17\Psr17Factory` class included in this library.
+When creating a client, you can optionally provide PSR-17 `ResponseFactoryInterface` and `UriFactoryInterface` instances.
+By default, the client will use the `Aternos\CurlPsr\Psr17\Psr17Factory` class included in this library.
 
-Additionally, you can pass an optional `CurlHandleFactoryInterface` instance as the second argument,
-which is mainly used for testing purposes.
+Additionally, you can pass an optional `UriResolverInterface` instance, which is used to resolve redirect targets.
 
 ### Configuring the client
 
@@ -52,7 +51,34 @@ $client->setProgressCallback(function (
 });
 ```
 
+#### Custom cURL options
+
+You can set custom cURL options using the `setCurlOption` method. Note that some options cannot be set, since they are 
+used internally by the client.
+
+#### Redirects
+
+The client will follow redirects by default. You can set the maximum number of redirects to follow using the 
+`setMaxRedirects` method. It is also possible to disable redirects using `setFollowRedirects`. The difference between
+setting the maximum number of redirects to 0 and disabling redirects is that the former will throw an exception if a
+redirect is received, while the latter will simply return the redirect response.
+
+Only when status `303 See Other` is received, the client will automatically change the request method to `GET` and
+remove the request body. Historically, this behavior was also sometimes present for `301` and `302`, so it is possible
+to enable it for other status codes using the `setRedirectToGetStatusCodes` method.
+
+Status `300 Multiple Choices` will only be treated as a redirect if the `Location` header is present.
+Otherwise, the response will be returned as is.
+
+To manage how redirect targets are resolved, or limit what locations the client can be redirected to,
+you can pass an instance of `UriResolverInterface` to the client constructor.
+
+When a redirect response is received that does not prompt the client to change the request method to `GET`
+and the body stream cannot be rewound, an exception is thrown. This is because the client cannot resend the request
+with the same body stream.
+
 #### Progress callback
+
 The progress callback function works the same way as the `CURLOPT_PROGRESSFUNCTION` in cURL,
 except that it receives the PSR-7 request object instead of a cURL handle as the first argument.
 Please note that the request object passed to the callback is not necessarily same instance that was

@@ -345,18 +345,6 @@ class HttpClientTest extends HttpClientTestCase
         $this->assertFalse($this->curlHandle->getOption(CURLOPT_FOLLOWLOCATION));
     }
 
-    public function testDisableRedirects(): void
-    {
-        $this->client->setMaxRedirects(0);
-        $this->assertEquals(0, $this->client->getMaxRedirects());
-
-        $request = $this->requestFactory->createRequest("GET", "https://example.com");
-        $this->client->sendRequest($request);
-
-        $this->assertFalse($this->curlHandle->getOption(CURLOPT_FOLLOWLOCATION));
-        $this->assertEquals(0, $this->curlHandle->getOption(CURLOPT_MAXREDIRS));
-    }
-
     public function testCookieFile(): void
     {
         $this->client->setCookieFile("cookie.txt");
@@ -443,6 +431,23 @@ class HttpClientTest extends HttpClientTestCase
         $this->assertEquals("https://example.com/redirect", (string)$target->getOption(CURLOPT_URL));
         $this->assertEquals("test1234", (string) $body1);
         $this->assertEquals("test1234", (string) $body2);
+    }
+
+    public function testDisableRedirects(): void
+    {
+        $this->curlHandle->setInfo(["http_code" => 302])
+            ->setResponseHeaders([
+                "Location: https://example.com/redirect"
+            ]);
+
+        $request = $this->requestFactory->createRequest("GET", "https://example.com");
+        $this->client->setFollowRedirects(false);
+        $this->assertEquals(false, $this->client->getFollowRedirects());
+
+        $response = $this->client->sendRequest($request);
+
+        $this->assertEquals(302, $response->getStatusCode());
+        $this->assertEquals("https://example.com/redirect", $response->getHeaderLine("Location"));
     }
 
     public function testThrowOnRedirectIfBodyIsNotSeekable(): void

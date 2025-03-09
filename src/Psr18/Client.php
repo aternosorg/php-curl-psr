@@ -226,7 +226,7 @@ class Client implements ClientInterface
 
         $response = $headerParser->applyToResponse($response);
 
-        if ($this->isRedirect($response)) {
+        if ($options->followRedirects && $this->isRedirect($response)) {
             if (!$fiber->isTerminated()) {
                 try {
                     $fiber->throw(new RequestRedirectedException());
@@ -552,5 +552,23 @@ class Client implements ClientInterface
     public function getRedirectToGetStatusCodes(): array
     {
         return $this->options->redirectToGetStatusCodes;
+    }
+
+    /**
+     * @param bool $followRedirects
+     * @return $this
+     */
+    public function setFollowRedirects(bool $followRedirects): static
+    {
+        $this->options->followRedirects = $followRedirects;
+        return $this;
+    }
+
+    /**
+     * @return bool
+     */
+    public function getFollowRedirects(): bool
+    {
+        return $this->options->followRedirects;
     }
 }

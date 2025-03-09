@@ -7,6 +7,7 @@ use Closure;
 class ClientOptions
 {
     public int $timeout = 0;
+    public bool $followRedirects = true;
     public int $maxRedirects = 10;
     public string $cookieFile = "";
     public ?Closure $progressCallback = null;
