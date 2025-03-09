@@ -5,6 +5,23 @@ namespace Aternos\CurlPsr\Psr7\Stream;
 trait StreamMetaDataTrait
 {
     /**
+     * @return string|null
+     */
+    protected function approximateMode(): ?string
+    {
+        if ($this->isReadable() && $this->isWritable()) {
+            return "r+";
+        }
+        if ($this->isReadable()) {
+            return "r";
+        }
+        if ($this->isWritable()) {
+            return "w";
+        }
+        return null;
+    }
+
+    /**
      * @inheritDoc
      */
     public function getMetadata(?string $key = null): mixed

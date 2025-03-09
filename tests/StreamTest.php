@@ -2,6 +2,7 @@
 
 namespace Tests;
 
+use Aternos\CurlPsr\Psr7\Stream\EmptyStream;
 use Aternos\CurlPsr\Psr7\Stream\Stream;
 use PHPUnit\Framework\TestCase;
 use ReflectionObject;
@@ -253,5 +254,30 @@ class StreamTest extends TestCase
         $stream = new Stream($resource);
 
         $this->assertNull($stream->getSize());
+    }
+
+    public function testEmptyStream(): void
+    {
+        $stream = new EmptyStream();
+        $this->assertEquals("", (string)$stream);
+        $this->assertNull($stream->detach());
+        $this->assertEquals(0, $stream->getSize());
+        $this->assertEquals(0, $stream->tell());
+        $this->assertTrue($stream->eof());
+        $this->assertTrue($stream->isSeekable());
+        $this->assertTrue($stream->isReadable());
+        $this->assertFalse($stream->isWritable());
+        $this->assertIsArray($stream->getMetadata());
+        $this->assertEquals(0, $stream->getMetadata("unread_bytes"));
+        $this->assertEquals("", $stream->read(10));
+        $this->assertEquals("", $stream->getContents());
+
+        // Do nothing
+        $stream->seek(2);
+        $stream->rewind();
+        $stream->close();
+
+        $this->expectException(RuntimeException::class);
+        $stream->write("test");
     }
 }

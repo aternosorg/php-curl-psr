@@ -9,11 +9,9 @@ class UriResolver implements UriResolverInterface
 {
     /**
      * @param UriFactoryInterface $uriFactory
-     * @param bool $strict
      */
     public function __construct(
-        protected UriFactoryInterface $uriFactory,
-        protected bool $strict = true
+        protected UriFactoryInterface $uriFactory
     )
     {
     }
@@ -23,10 +21,6 @@ class UriResolver implements UriResolverInterface
      */
     public function resolve(UriInterface $baseUri, UriInterface $relativeUri): UriInterface
     {
-        if (!$this->strict && $relativeUri->getScheme() === $baseUri->getScheme()) {
-            $relativeUri = $relativeUri->withScheme("");
-        }
-
         if ($relativeUri->getScheme() !== "") {
             return $relativeUri;
         }

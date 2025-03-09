@@ -36,11 +36,12 @@ class UriResolverTest extends TestCase
     #[TestWith(["../../g", "http://a/g"])]
     #[TestWith(["../../../g", "http://a/g"])]
     #[TestWith(["../../../../g", "http://a/g"])]
-    public function testRelativeResolution(string $relativeUri, string $expectedUri)
+    #[TestWith(["abc", "http://a/abc", "http://a"])]
+    public function testRelativeResolution(string $relativeUri, string $expectedUri, string $baseUriString = self::BASE_URI): void
     {
         $factory = new Psr17Factory();
         $resolver = new UriResolver($factory);
-        $baseUri = $factory->createUri(self::BASE_URI);
+        $baseUri = $factory->createUri($baseUriString);
         $relativeUri = $factory->createUri($relativeUri);
         $resolvedUri = $resolver->resolve($baseUri, $relativeUri);
         $this->assertEquals($expectedUri, (string)$resolvedUri);

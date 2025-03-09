@@ -164,21 +164,4 @@ class StringStream implements StreamInterface
         }
         return substr($this->data, $this->position);
     }
-
-    /**
-     * @return string|null
-     */
-    protected function approximateMode(): ?string
-    {
-        if ($this->isReadable() && $this->isWritable()) {
-            return "r+";
-        }
-        if ($this->isReadable()) {
-            return "r";
-        }
-        if ($this->isWritable()) {
-            return "w";
-        }
-        return null;
-    }
 }
