@@ -27,6 +27,6 @@ class HttpClientTestCase extends TestCase
 
         $this->curlHandleFactory = new TestCurlHandleFactory();
         $this->curlHandle = $this->curlHandleFactory->nextTestHandle();
-        $this->client = new Client($psrFactory, $this->curlHandleFactory);
+        $this->client = (new Client($psrFactory))->setCurlHandleFactory($this->curlHandleFactory);
     }
 }

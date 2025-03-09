@@ -7,6 +7,8 @@ use RuntimeException;
 
 class StringStream implements StreamInterface
 {
+    use StreamMetaDataTrait;
+
     protected int $position = 0;
 
     /**
@@ -178,31 +180,5 @@ class StringStream implements StreamInterface
             return "w";
         }
         return null;
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function getMetadata(?string $key = null)
-    {
-        if ($key !== null) {
-            return match ($key) {
-                "timed_out", "blocked" => false,
-                "eof" => $this->eof(),
-                "unread_bytes" => $this->getSize() - $this->tell(),
-                "mode" => $this->approximateMode(),
-                "seekable" => $this->isSeekable(),
-                default => null
-            };
-        }
-
-        return [
-            "timed_out" => $this->getMetadata("timed_out"),
-            "blocked" => $this->getMetadata("blocked"),
-            "eof" => $this->getMetadata("eof"),
-            "unread_bytes" => $this->getMetadata("unread_bytes"),
-            "mode" => $this->getMetadata("mode"),
-            "seekable" => $this->getMetadata("seekable"),
-        ];
     }
 }

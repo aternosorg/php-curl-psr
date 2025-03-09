@@ -287,12 +287,12 @@ class HttpClientTest extends HttpClientTestCase
         $this->curlHandle
             ->setResponseBody($responseBody);
 
-        $this->client = new class($this->requestFactory, $this->curlHandleFactory) extends \Aternos\CurlPsr\Psr18\Client {
+        $this->client = (new class($this->requestFactory) extends \Aternos\CurlPsr\Psr18\Client {
             protected function shouldUseXferInfoFunction(): bool
             {
                 return false;
             }
-        };
+        })->setCurlHandleFactory($this->curlHandleFactory);
 
         $progressCalled = false;
         $this->client->setProgressCallback(function () use (&$progressCalled) {
@@ -336,8 +336,8 @@ class HttpClientTest extends HttpClientTestCase
         $request = $this->requestFactory->createRequest("GET", "https://example.com");
         $this->client->sendRequest($request);
 
-        $this->assertTrue($this->curlHandle->getOption(CURLOPT_FOLLOWLOCATION));
-        $this->assertEquals(10, $this->curlHandle->getOption(CURLOPT_MAXREDIRS));
+        // Redirects are handled by the client, not by curl
+        $this->assertFalse($this->curlHandle->getOption(CURLOPT_FOLLOWLOCATION));
     }
 
     public function testDisableRedirects(): void

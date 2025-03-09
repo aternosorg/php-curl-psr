@@ -2,7 +2,7 @@
 
 namespace Aternos\CurlPsr\Psr7\Message;
 
-use Aternos\CurlPsr\Psr7\Stream\StringStream;
+use Aternos\CurlPsr\Psr7\Stream\EmptyStream;
 use Psr\Http\Message\MessageInterface;
 use Psr\Http\Message\StreamInterface;
 
@@ -149,7 +149,7 @@ class Message implements MessageInterface
     public function getBody(): StreamInterface
     {
         if ($this->body === null) {
-            $this->body = new StringStream("");
+            $this->body = new EmptyStream();
         }
 
         return $this->body;

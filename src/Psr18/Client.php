@@ -7,13 +7,19 @@ use Aternos\CurlPsr\Curl\CurlHandleFactoryInterface;
 use Aternos\CurlPsr\Curl\CurlHandleInterface;
 use Aternos\CurlPsr\Exception\NetworkException;
 use Aternos\CurlPsr\Exception\RequestException;
+use Aternos\CurlPsr\Exception\RequestRedirectedException;
+use Aternos\CurlPsr\Exception\TooManyRedirectsException;
 use Aternos\CurlPsr\Psr17\Psr17Factory;
+use Aternos\CurlPsr\Psr18\UriResolver\UriResolver;
+use Aternos\CurlPsr\Psr18\UriResolver\UriResolverInterface;
+use Aternos\CurlPsr\Psr7\Stream\EmptyStream;
 use Closure;
 use Fiber;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\UriFactoryInterface;
 use Throwable;
 
 class Client implements ClientInterface
@@ -30,46 +36,60 @@ class Client implements ClientInterface
     ];
 
     protected ResponseFactoryInterface $responseFactory;
+    protected UriFactoryInterface $uriFactory;
+    protected UriResolverInterface $uriResolver;
     protected CurlHandleFactoryInterface $curlHandleFactory;
-    protected int $timeout = 0;
-    protected int $maxRedirects = 10;
-    protected string $cookieFile = "";
-    protected ?Closure $progressCallback = null;
-    protected array $customCurlOptions = [];
-    protected array $defaultHeaders = [];
+    protected ClientOptions $options;
 
     /**
      * @param ResponseFactoryInterface|null $responseFactory
-     * @param CurlHandleFactoryInterface|null $curlHandleFactory
+     * @param UriFactoryInterface|null $uriFactory
+     * @param UriResolverInterface|null $uriResolver
      */
     public function __construct(
         ?ResponseFactoryInterface $responseFactory = null,
-        ?CurlHandleFactoryInterface        $curlHandleFactory = null
+        ?UriFactoryInterface $uriFactory = null,
+        ?UriResolverInterface $uriResolver = null
     )
     {
-        $this->responseFactory = $responseFactory ?? new Psr17Factory();
-        $this->curlHandleFactory = $curlHandleFactory ?? new CurlHandleFactory();
+        $factory = new Psr17Factory();
+        $this->responseFactory = $responseFactory ?? $factory;
+        $this->uriFactory = $uriFactory ?? $factory;
+        $this->uriResolver = $uriResolver ?? new UriResolver($this->uriFactory);
+        $this->curlHandleFactory = new CurlHandleFactory();
+        $this->options = new ClientOptions();
+    }
+
+    /**
+     * @param CurlHandleFactoryInterface $curlHandleFactory
+     * @return $this
+     * @internal Used for testing
+     */
+    public function setCurlHandleFactory(CurlHandleFactoryInterface $curlHandleFactory): static
+    {
+        $this->curlHandleFactory = $curlHandleFactory;
+        return $this;
     }
 
     /**
      * @param RequestInterface $request
      * @param ResponseHeaderParser $headerParser
+     * @param ClientOptions $options
      * @return CurlHandleInterface
      */
-    protected function initRequest(RequestInterface $request, ResponseHeaderParser $headerParser): CurlHandleInterface
+    protected function initRequest(RequestInterface $request, ResponseHeaderParser $headerParser, ClientOptions $options): CurlHandleInterface
     {
         $ch = $this->curlHandleFactory->createCurlHandle();
-        foreach ($this->customCurlOptions as $option => $value) {
+        foreach ($options->curlOptions as $option => $value) {
             $ch->setopt($option, $value);
         }
 
         $ch->setopt(CURLOPT_URL, $request->getUri());
         $ch->setopt(CURLOPT_REQUEST_TARGET, $request->getRequestTarget());
         $ch->setopt(CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
-        $ch->setopt(CURLOPT_FOLLOWLOCATION, $this->maxRedirects > 0);
-        $ch->setopt(CURLOPT_MAXREDIRS, $this->maxRedirects);
-        $ch->setopt(CURLOPT_COOKIEFILE, $this->cookieFile);
-        $ch->setopt(CURLOPT_TIMEOUT, $this->timeout);
+        $ch->setopt(CURLOPT_FOLLOWLOCATION, false);
+        $ch->setopt(CURLOPT_COOKIEFILE, $options->cookieFile);
+        $ch->setopt(CURLOPT_TIMEOUT, $options->timeout);
         $ch->setopt(CURLOPT_ACCEPT_ENCODING, "");
 
         if ($request->getProtocolVersion() === "1.0") {
@@ -100,7 +120,7 @@ class Client implements ClientInterface
             return strlen($data);
         });
 
-        $progressCallback = $this->createProgressCallback($request);
+        $progressCallback = $this->createProgressCallback($request, $options);
         if ($progressCallback !== null) {
             $ch->setopt(CURLOPT_NOPROGRESS, false);
             if ($this->shouldUseXferInfoFunction()) {
@@ -131,11 +151,12 @@ class Client implements ClientInterface
      * as to not expose the cURL handle to the user
      *
      * @param RequestInterface $request
+     * @param ClientOptions $options
      * @return Closure|null
      */
-    protected function createProgressCallback(RequestInterface $request): ?Closure
+    protected function createProgressCallback(RequestInterface $request, ClientOptions $options): ?Closure
     {
-        $callback = $this->getProgressCallback();
+        $callback = $options->progressCallback;
         if ($callback === null) {
             return null;
         }
@@ -147,18 +168,35 @@ class Client implements ClientInterface
      */
     public function sendRequest(RequestInterface $request): ResponseInterface
     {
-        foreach ($this->defaultHeaders as $name => $values) {
+        return $this->doSendRequest($request, clone $this->options);
+    }
+
+    /**
+     * Actually send the request
+     *
+     * @param RequestInterface $request
+     * @param ClientOptions $options
+     * @param int $redirects
+     * @return ResponseInterface
+     * @throws NetworkException
+     * @throws RequestException
+     */
+    protected function doSendRequest(RequestInterface $request, ClientOptions $options, int $redirects = 0): ResponseInterface
+    {
+        foreach ($options->defaultHeaders as $name => $values) {
             if (!$request->hasHeader($name)) {
                 $request = $request->withHeader($name, $values);
             }
         }
 
         $headerParser = new ResponseHeaderParser();
-        $ch = $this->initRequest($request, $headerParser);
+        $ch = $this->initRequest($request, $headerParser, $options);
 
         $fiber = new Fiber(function () use ($ch) {
             try {
                 $ch->exec();
+            } catch (RequestRedirectedException) {
+                // ignore
             } catch (Throwable $e) {
                 $ch->close();
                 throw $e;
@@ -188,6 +226,15 @@ class Client implements ClientInterface
 
         $response = $headerParser->applyToResponse($response);
 
+        if ($this->isRedirect($response)) {
+            try {
+                $fiber->throw(new RequestRedirectedException());
+            } catch (Throwable $e) {
+                throw new RequestException($request, "Could not close request before redirect", previous: $e);
+            }
+            return $this->handleRedirect($request, $response, $options, $redirects);
+        }
+
         $size = null;
         if ($response->hasHeader("Content-Encoding")) {
             $response = $response
@@ -201,6 +248,89 @@ class Client implements ClientInterface
         }
 
         return $response->withBody(new ResponseStream($ch, $fiber, $initial ?? "", $size));
+    }
+
+    /**
+     * @param ResponseInterface $response
+     * @return bool
+     */
+    protected function isRedirect(ResponseInterface $response): bool
+    {
+        if ($response->getStatusCode() > 300 && $response->getStatusCode() < 400) {
+            return true;
+        }
+
+        return $response->getStatusCode() === 300 && $response->hasHeader("Location");
+    }
+
+    /**
+     * Handle a redirect response
+     *
+     * @param RequestInterface $request
+     * @param ResponseInterface $response
+     * @param ClientOptions $options
+     * @param int $redirects
+     * @return ResponseInterface
+     * @throws NetworkException
+     * @throws RequestException
+     * @throws TooManyRedirectsException
+     */
+    protected function handleRedirect(RequestInterface $request, ResponseInterface $response, ClientOptions $options, int $redirects): ResponseInterface
+    {
+        if ($redirects >= $options->maxRedirects) {
+            throw new TooManyRedirectsException($request, "Redirect limit of " . $options->maxRedirects . " reached");
+        }
+
+        $locationHeaders = $response->getHeader("Location");
+        if (count($locationHeaders) === 0) {
+            throw new RequestException($request, "Redirect without location header");
+        }
+        if (count($locationHeaders) > 1) {
+            throw new RequestException($request, "Multiple location headers in redirect");
+        }
+
+        try {
+            $relativeUri = $this->uriFactory->createUri($locationHeaders[0]);
+        } catch (Throwable $e) {
+            throw new RequestException($request, "Invalid location header in redirect", previous: $e);
+        }
+
+        $location = $this->uriResolver->resolve($request->getUri(), $relativeUri);
+        $request = $request->withUri($location);
+
+        if (in_array($response->getStatusCode(), $options->redirectToGetStatusCodes)) {
+            $request = $request->withMethod("GET")
+                ->withBody(new EmptyStream())
+                ->withoutHeader("Content-Length");
+            return $this->doSendRequest($request, $options, $redirects + 1);
+        }
+
+        try {
+            $this->rewindBody($request);
+        } catch (Throwable $e) {
+            throw new RequestException($request, "Could not rewind body for redirect", previous: $e);
+        }
+
+        return $this->doSendRequest($request, $options, $redirects + 1);
+    }
+
+    /**
+     * @param RequestInterface $request
+     * @return void
+     * @throws RequestException
+     */
+    protected function rewindBody(RequestInterface $request): void
+    {
+        $body = $request->getBody();
+        $offset = $body->tell();
+        if ($offset === 0) {
+            return;
+        }
+
+        if (!$body->isSeekable()) {
+            throw new RequestException($request, "Request body is not seekable");
+        }
+        $body->rewind();
     }
 
     /**
@@ -256,7 +386,7 @@ class Client implements ClientInterface
      */
     public function setTimeout(int $timeout): static
     {
-        $this->timeout = $timeout;
+        $this->options->timeout = $timeout;
         return $this;
     }
 
@@ -265,7 +395,7 @@ class Client implements ClientInterface
      */
     public function getTimeout(): int
     {
-        return $this->timeout;
+        return $this->options->timeout;
     }
 
     /**
@@ -276,7 +406,7 @@ class Client implements ClientInterface
      */
     public function setMaxRedirects(int $maxRedirects): static
     {
-        $this->maxRedirects = $maxRedirects;
+        $this->options->maxRedirects = $maxRedirects;
         return $this;
     }
 
@@ -285,7 +415,7 @@ class Client implements ClientInterface
      */
     public function getMaxRedirects(): int
     {
-        return $this->maxRedirects;
+        return $this->options->maxRedirects;
     }
 
     /**
@@ -296,7 +426,7 @@ class Client implements ClientInterface
      */
     public function setCookieFile(string $cookieFile): static
     {
-        $this->cookieFile = $cookieFile;
+        $this->options->cookieFile = $cookieFile;
         return $this;
     }
 
@@ -305,7 +435,7 @@ class Client implements ClientInterface
      */
     public function getCookieFile(): string
     {
-        return $this->cookieFile;
+        return $this->options->cookieFile;
     }
 
     /**
@@ -316,7 +446,7 @@ class Client implements ClientInterface
      */
     public function setProgressCallback(?Closure $progressCallback): static
     {
-        $this->progressCallback = $progressCallback;
+        $this->options->progressCallback = $progressCallback;
         return $this;
     }
 
@@ -325,7 +455,7 @@ class Client implements ClientInterface
      */
     public function getProgressCallback(): ?Closure
     {
-        return $this->progressCallback;
+        return $this->options->progressCallback;
     }
 
     /**
@@ -337,7 +467,7 @@ class Client implements ClientInterface
      */
     public function setCurlOption(int $option, mixed $value): static
     {
-        $this->customCurlOptions[$option] = $value;
+        $this->options->curlOptions[$option] = $value;
         return $this;
     }
 
@@ -349,7 +479,15 @@ class Client implements ClientInterface
      */
     public function getCurlOption(int $option): mixed
     {
-        return $this->customCurlOptions[$option] ?? null;
+        return $this->options->curlOptions[$option] ?? null;
+    }
+
+    /**
+     * @return array
+     */
+    public function getCurlOptions(): array
+    {
+        return $this->options->curlOptions;
     }
 
     /**
@@ -363,7 +501,7 @@ class Client implements ClientInterface
      */
     public function setDefaultHeaders(array $headers): static
     {
-        $this->defaultHeaders = $headers;
+        $this->options->defaultHeaders = $headers;
         return $this;
     }
 
@@ -374,13 +512,13 @@ class Client implements ClientInterface
      */
     public function addDefaultHeader(string $name, string ...$values): static
     {
-        foreach ($this->defaultHeaders as $headerName => $headerValues) {
+        foreach ($this->options->defaultHeaders as $headerName => $headerValues) {
             if (strtolower($headerName) === strtolower($name)) {
-                $this->defaultHeaders[$headerName] = $values;
+                $this->options->defaultHeaders[$headerName] = $values;
                 return $this;
             }
         }
-        $this->defaultHeaders[$name] = $values;
+        $this->options->defaultHeaders[$name] = $values;
         return $this;
     }
 
@@ -389,6 +527,28 @@ class Client implements ClientInterface
      */
     public function getDefaultHeaders(): array
     {
-        return $this->defaultHeaders;
+        return $this->options->defaultHeaders;
+    }
+
+    /**
+     * Set a list of status codes that should be redirected to using GET.
+     * By default, only 303 responses are redirected to using GET,
+     * but historically 301 and 302 have also used this behavior.
+     *
+     * @param int[] $redirectToGetStatusCodes
+     * @return $this
+     */
+    public function setRedirectToGetStatusCodes(array $redirectToGetStatusCodes): static
+    {
+        $this->options->redirectToGetStatusCodes = $redirectToGetStatusCodes;
+        return $this;
+    }
+
+    /**
+     * @return int[]
+     */
+    public function getRedirectToGetStatusCodes(): array
+    {
+        return $this->options->redirectToGetStatusCodes;
     }
 }
