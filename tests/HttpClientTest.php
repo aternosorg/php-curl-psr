@@ -2,6 +2,10 @@
 
 namespace Tests;
 
+use Aternos\CurlPsr\Exception\RequestException;
+use Aternos\CurlPsr\Exception\RequestRedirectedException;
+use Aternos\CurlPsr\Psr7\Stream\StringStream;
+use Exception;
 use PHPUnit\Framework\Attributes\TestWith;
 use Psr\Http\Client\NetworkExceptionInterface;
 use Psr\Http\Client\RequestExceptionInterface;
@@ -241,6 +245,7 @@ class HttpClientTest extends HttpClientTestCase
                 $uTotal = $uploadTotal;
             }
         });
+        $this->assertIsCallable($this->client->getProgressCallback());
 
         $request = $this->requestFactory->createRequest("POST", "https://example.com")
             ->withBody($requestBody);
@@ -367,6 +372,7 @@ class HttpClientTest extends HttpClientTestCase
     {
         $this->client->setCurlOption(CURLOPT_BUFFERSIZE, 1024);
         $this->assertEquals(1024, $this->client->getCurlOption(CURLOPT_BUFFERSIZE));
+        $this->assertCount(1, $this->client->getCurlOptions());
 
         $request = $this->requestFactory->createRequest("GET", "https://example.com");
         $this->client->sendRequest($request);
@@ -414,5 +420,220 @@ class HttpClientTest extends HttpClientTestCase
 
         $this->assertContains("X-Test: Request", $this->curlHandle->getOption(CURLOPT_HTTPHEADER));
         $this->assertNotContains("X-Test: Test", $this->curlHandle->getOption(CURLOPT_HTTPHEADER));
+    }
+
+    public function testRedirect(): void
+    {
+        $body1 = $this->streamFactory->createStream();
+        $this->curlHandle->setInfo(["http_code" => 302])
+            ->setResponseHeaders([
+                "Location: https://example.com/redirect"
+            ])
+            ->setRequestBodySink($body1);
+
+        $body2 = $this->streamFactory->createStream();
+        $target = $this->curlHandleFactory->nextTestHandle()
+            ->setRequestBodySink($body2);
+
+        $request = $this->requestFactory->createRequest("POST", "https://example.com")
+            ->withBody($this->streamFactory->createStream("test1234"));
+        $this->client->sendRequest($request);
+
+        $this->assertEquals("POST", $target->getOption(CURLOPT_CUSTOMREQUEST));
+        $this->assertEquals("https://example.com/redirect", (string)$target->getOption(CURLOPT_URL));
+        $this->assertEquals("test1234", (string) $body1);
+        $this->assertEquals("test1234", (string) $body2);
+    }
+
+    public function testThrowOnRedirectIfBodyIsNotSeekable(): void
+    {
+        $this->curlHandle->setInfo(["http_code" => 302])
+            ->setResponseHeaders([
+                "Location: https://example.com/redirect"
+            ]);
+
+        $this->curlHandleFactory->nextTestHandle();
+        $request = $this->requestFactory->createRequest("POST", "https://example.com")
+            ->withBody(new StringStream("test1234", false));
+
+        $this->expectException(RequestException::class);
+        $this->expectExceptionMessage("Could not rewind body for redirect");
+        $this->client->sendRequest($request);
+    }
+
+    public function testThrowOnMultipleLocationHeaders(): void
+    {
+        $this->curlHandle->setInfo(["http_code" => 302])
+            ->setResponseHeaders([
+                "Location: https://example.com/redirect",
+                "Location: https://example.com/redirect1"
+            ]);
+
+        $this->curlHandleFactory->nextTestHandle();
+        $request = $this->requestFactory->createRequest("POST", "https://example.com");
+
+        $this->expectException(RequestException::class);
+        $this->expectExceptionMessage("Multiple location headers in redirect");
+        $this->client->sendRequest($request);
+    }
+
+    public function testRedirectLimit(): void
+    {
+        $this->curlHandle->setInfo(["http_code" => 302])
+            ->setResponseHeaders([
+                "Location: https://example.com/redirect1"
+            ]);
+
+        $this->curlHandleFactory->nextTestHandle()
+            ->setInfo(["http_code" => 302])
+            ->setResponseHeaders([
+                "Location: https://example.com/redirect2"
+            ]);
+
+        $this->curlHandleFactory->nextTestHandle()
+            ->setInfo(["http_code" => 302])
+            ->setResponseHeaders([
+                "Location: https://example.com/redirect3"
+            ]);
+
+        $request = $this->requestFactory->createRequest("POST", "https://example.com");
+
+        $this->client->setMaxRedirects(2);
+
+        $this->expectException(RequestException::class);
+        $this->expectExceptionMessage("Redirect limit of 2 reached");
+        $this->client->sendRequest($request);
+    }
+
+    public function testRedirectToGetOn303(): void
+    {
+        $body1 = $this->streamFactory->createStream();
+        $this->curlHandle->setInfo(["http_code" => 303])
+            ->setResponseHeaders([
+                "Location: https://example.com/redirect"
+            ])
+            ->setRequestBodySink($body1);
+
+        $body2 = $this->streamFactory->createStream();
+        $target = $this->curlHandleFactory->nextTestHandle()
+            ->setRequestBodySink($body2);
+
+        $request = $this->requestFactory->createRequest("POST", "https://example.com")
+            ->withBody($this->streamFactory->createStream("test1234"));
+        $this->client->sendRequest($request);
+
+        $this->assertEquals("GET", $target->getOption(CURLOPT_CUSTOMREQUEST));
+        $this->assertEquals("https://example.com/redirect", (string)$target->getOption(CURLOPT_URL));
+        $this->assertEquals("test1234", (string) $body1);
+        $this->assertEquals("", (string) $body2);
+    }
+
+    public function testRedirectToGetIfConfigured(): void
+    {
+        $this->curlHandle->setInfo(["http_code" => 302])
+            ->setResponseHeaders([
+                "Location: https://example.com/redirect"
+            ]);
+
+        $target = $this->curlHandleFactory->nextTestHandle();
+
+        $request = $this->requestFactory->createRequest("POST", "https://example.com")
+            ->withBody($this->streamFactory->createStream("test1234"));
+        $this->client->setRedirectToGetStatusCodes([302]);
+        $this->assertEquals([302], $this->client->getRedirectToGetStatusCodes());
+        $this->client->sendRequest($request);
+
+        $this->assertEquals("GET", $target->getOption(CURLOPT_CUSTOMREQUEST));
+        $this->assertEquals("https://example.com/redirect", (string)$target->getOption(CURLOPT_URL));
+    }
+
+    public function testThrowOnRedirectWithoutLocation(): void
+    {
+        $this->curlHandle->setInfo(["http_code" => 303]);
+
+        $this->expectException(RequestException::class);
+        $this->expectExceptionMessage("Redirect without location header");
+        $request = $this->requestFactory->createRequest("GET", "https://example.com");
+        $this->client->sendRequest($request);
+    }
+
+    public function testThrowOnRedirectToInvalidTarget(): void
+    {
+        $this->curlHandle->setInfo(["http_code" => 303])
+            ->setResponseHeaders([
+                "Location: http://"
+            ]);
+
+        $this->expectException(RequestException::class);
+        $this->expectExceptionMessage("Invalid location header in redirect");
+        $request = $this->requestFactory->createRequest("GET", "https://example.com");
+        $this->client->sendRequest($request);
+    }
+
+    public function testRedirectOn300IfLocationIsSet(): void
+    {
+        $this->curlHandle->setInfo(["http_code" => 300])
+            ->setResponseHeaders([
+                "Location: https://example.com/redirect"
+            ]);
+
+        $target = $this->curlHandleFactory->nextTestHandle();
+
+        $request = $this->requestFactory->createRequest("GET", "https://example.com");
+        $this->client->sendRequest($request);
+
+        $this->assertEquals("GET", $target->getOption(CURLOPT_CUSTOMREQUEST));
+        $this->assertEquals("https://example.com/redirect", (string)$target->getOption(CURLOPT_URL));
+    }
+
+    public function testDoNotRedirectOn300IfLocationIsMissing(): void
+    {
+        $this->curlHandle->setInfo(["http_code" => 300])
+            ->setResponseHeaders([
+                'Link: <https://example.com/redirect>; rel="alternate"'
+            ]);
+
+        $target = $this->curlHandleFactory->nextTestHandle();
+
+        $request = $this->requestFactory->createRequest("GET", "https://example.com");
+        $this->client->sendRequest($request);
+
+        $this->assertNull($target->getOption(CURLOPT_CUSTOMREQUEST));
+    }
+
+    public function testRedirectCancelsInitialRequest(): void
+    {
+        $this->curlHandle->setInfo(["http_code" => 302])
+            ->setResponseHeaders([
+                "Location: https://example.com/redirect"
+            ])
+            ->setResponseBody($this->streamFactory->createStream(random_bytes(1024)));
+
+        $this->curlHandleFactory->nextTestHandle();
+
+        $request = $this->requestFactory->createRequest("POST", "https://example.com");
+        $this->client->sendRequest($request);
+
+        $this->assertInstanceOf(RequestRedirectedException::class, $this->curlHandle->getExecError());
+    }
+
+    public function testThrowOnErrorWhileStoppingInitialRequest(): void
+    {
+        $this->curlHandle->setInfo(["http_code" => 302])
+            ->setResponseHeaders([
+                "Location: https://example.com/redirect"
+            ])
+            ->setResponseBody($this->streamFactory->createStream(random_bytes(1024)))
+            ->setOnWriteError(function () {
+                throw new Exception("Test");
+            });
+
+        $this->curlHandleFactory->nextTestHandle();
+
+        $request = $this->requestFactory->createRequest("POST", "https://example.com");
+
+        $this->expectException(RequestException::class);
+        $this->expectExceptionMessage("Could not close request before redirect");
+        $this->client->sendRequest($request);
     }
 }

@@ -227,10 +227,12 @@ class Client implements ClientInterface
         $response = $headerParser->applyToResponse($response);
 
         if ($this->isRedirect($response)) {
-            try {
-                $fiber->throw(new RequestRedirectedException());
-            } catch (Throwable $e) {
-                throw new RequestException($request, "Could not close request before redirect", previous: $e);
+            if (!$fiber->isTerminated()) {
+                try {
+                    $fiber->throw(new RequestRedirectedException());
+                } catch (Throwable $e) {
+                    throw new RequestException($request, "Could not close request before redirect", previous: $e);
+                }
             }
             return $this->handleRedirect($request, $response, $options, $redirects);
         }

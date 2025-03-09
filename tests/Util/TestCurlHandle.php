@@ -32,6 +32,8 @@ class TestCurlHandle implements CurlHandleInterface
     protected ?Closure $onAfterRead = null;
     protected ?Closure $onBeforeWrite = null;
     protected ?Closure $onAfterWrite = null;
+    protected ?Closure $onBeforeRequest = null;
+    protected ?Closure $onWriteError = null;
     protected ?Throwable $execError = null;
 
     /**
@@ -48,6 +50,10 @@ class TestCurlHandle implements CurlHandleInterface
      */
     public function exec(): string|bool
     {
+        $beforeRequest = $this->onBeforeRequest;
+        if ($beforeRequest !== null) {
+            $beforeRequest($this);
+        }
         try {
             return $this->doExec();
         } catch (Throwable $e) {
@@ -92,7 +98,12 @@ class TestCurlHandle implements CurlHandleInterface
         if (isset($this->options[CURLOPT_WRITEFUNCTION]) && $this->responseBody !== null) {
             while (!$this->responseBody->eof()) {
                 $this->onBeforeWrite?->call($this);
-                $this->options[CURLOPT_WRITEFUNCTION](null, $this->responseBody->read($this->responseChunkSize));
+                try {
+                    $this->options[CURLOPT_WRITEFUNCTION](null, $this->responseBody->read($this->responseChunkSize));
+                } catch (Throwable $e) {
+                    $this->onWriteError?->call($this, $e);
+                    throw $e;
+                }
                 $this->progressUpdate(
                     $this->responseBody->getSize() ?? $this->getResponseHeader("Content-Length") ?? 0,
                     $this->responseBody->tell(), 0, 0);
@@ -442,6 +453,26 @@ class TestCurlHandle implements CurlHandleInterface
     public function getExecError(): ?Throwable
     {
         return $this->execError;
+    }
+
+    /**
+     * @param Closure|null $onBeforeRequest
+     * @return $this
+     */
+    public function setOnBeforeRequest(?Closure $onBeforeRequest): static
+    {
+        $this->onBeforeRequest = $onBeforeRequest;
+        return $this;
+    }
+
+    /**
+     * @param Closure|null $onWriteError
+     * @return $this
+     */
+    public function setOnWriteError(?Closure $onWriteError): static
+    {
+        $this->onWriteError = $onWriteError;
+        return $this;
     }
 
 }
