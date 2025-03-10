@@ -303,7 +303,9 @@ class Client implements ClientInterface
         if (in_array($response->getStatusCode(), $options->redirectToGetStatusCodes)) {
             $request = $request->withMethod("GET")
                 ->withBody(new EmptyStream())
-                ->withoutHeader("Content-Length");
+                ->withoutHeader("Content-Length")
+                ->withoutHeader("Content-Type")
+                ->withoutHeader("Content-Encoding");
             return $this->doSendRequest($request, $options, $redirects + 1);
         }
 
