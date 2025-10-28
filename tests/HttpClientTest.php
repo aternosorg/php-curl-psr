@@ -86,6 +86,7 @@ class HttpClientTest extends HttpClientTestCase
         $this->assertEquals(200, $response->getStatusCode());
         $this->assertEquals("TEST", $response->getReasonPhrase());
         $this->assertEquals("HEAD", $this->curlHandle->getOption(CURLOPT_CUSTOMREQUEST));
+        $this->assertTrue($this->curlHandle->getOption(CURLOPT_NOBODY));
     }
 
     public function testCustom(): void

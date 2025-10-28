@@ -132,6 +132,9 @@ class Client implements ClientInterface
 
         $ch->setopt(CURLOPT_HEADERFUNCTION, $headerParser->getClosure());
         $ch->setopt(CURLOPT_CUSTOMREQUEST, $request->getMethod());
+        if ($request->getMethod() === "HEAD") {
+            $ch->setopt(CURLOPT_NOBODY, true);
+        }
 
         $this->setHeaders($request, $ch);
 
