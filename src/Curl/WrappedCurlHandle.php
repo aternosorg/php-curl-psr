@@ -57,7 +57,6 @@ class WrappedCurlHandle implements CurlHandleInterface
      */
     public function close(): void
     {
-        curl_close($this->ch);
     }
 
     /**
