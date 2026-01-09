@@ -681,4 +681,21 @@ class HttpClientTest extends HttpClientTestCase
         $this->assertEquals(80, $reflection->getMethod("getDefaultPort")->invoke($this->client, new Uri("http://example.com")));
         $this->assertNull($reflection->getMethod("getDefaultPort")->invoke($this->client, new Uri("ftp://example.com")));
     }
+
+    public function testSetContentLengthToZeroWithNoBody(): void
+    {
+        $request = $this->requestFactory->createRequest("GET", "https://example.com");
+        $this->client->sendRequest($request);
+        $this->assertEquals("0", $this->curlHandle->getRequestHeader("Content-Length"));
+        $this->assertEquals(0, $this->curlHandle->getOption(CURLOPT_INFILESIZE));
+    }
+
+    public function testSetContentLengthToZeroWithEmptyBody(): void
+    {
+        $request = $this->requestFactory->createRequest("POST", "https://example.com")
+            ->withBody($this->streamFactory->createStream());
+        $this->client->sendRequest($request);
+        $this->assertEquals("0", $this->curlHandle->getRequestHeader("Content-Length"));
+        $this->assertEquals(0, $this->curlHandle->getOption(CURLOPT_INFILESIZE));
+    }
 }

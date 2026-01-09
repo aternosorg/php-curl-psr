@@ -103,7 +103,7 @@ class Client implements ClientInterface
 
         $requestBody = $request->getBody();
         $requestBodySize = $requestBody->getSize();
-        if ($requestBodySize !== null && $requestBodySize > 0) {
+        if ($requestBodySize !== null && $requestBodySize >= 0) {
             $ch->setopt(CURLOPT_INFILESIZE, $requestBodySize);
             $request = $request->withHeader("Content-Length", $requestBodySize);
         }
