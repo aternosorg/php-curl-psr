@@ -540,7 +540,7 @@ class HttpClientTest extends HttpClientTestCase
         $this->assertEquals("test1234", (string) $body1);
         $this->assertEquals("", (string) $body2);
 
-        $this->assertNull($target->getRequestHeader("Content-Length"));
+        $this->assertEquals(0, $target->getRequestHeader("Content-Length"));
         $this->assertNull($target->getRequestHeader("Content-Type"));
         $this->assertNull($target->getRequestHeader("Content-Encoding"));
         $this->assertNull($target->getRequestHeader("Content-Language"));
