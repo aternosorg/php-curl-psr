@@ -239,15 +239,6 @@ class StreamTest extends TestCase
         $stream->write("test");
     }
 
-    public function testTellFails(): void
-    {
-        $resource = fopen("/dev/null", "r+");
-        $stream = new Stream($resource);
-
-        $this->expectException(RuntimeException::class);
-        $stream->tell();
-    }
-
     public function testStatFails(): void
     {
         $resource = fopen("php://input", "r+");

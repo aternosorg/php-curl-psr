@@ -103,6 +103,8 @@ class Stream implements StreamInterface
 
     /**
      * @inheritDoc
+     * @codeCoverageIgnore As of PHP 8.5, there is no known way to make
+     * ftell actually return false
      */
     public function tell(): int
     {
