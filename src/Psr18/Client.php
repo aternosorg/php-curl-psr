@@ -20,6 +20,7 @@ use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\UriFactoryInterface;
+use Psr\Http\Message\UriInterface;
 use Throwable;
 
 class Client implements ClientInterface
@@ -102,7 +103,7 @@ class Client implements ClientInterface
 
         $requestBody = $request->getBody();
         $requestBodySize = $requestBody->getSize();
-        if ($requestBodySize !== null && $requestBodySize >= 0) {
+        if ($requestBodySize !== null && $requestBodySize > 0) {
             $ch->setopt(CURLOPT_INFILESIZE, $requestBodySize);
             $request = $request->withHeader("Content-Length", $requestBodySize);
         }
@@ -300,7 +301,8 @@ class Client implements ClientInterface
             throw new RequestException($request, "Invalid location header in redirect", previous: $e);
         }
 
-        $location = $this->uriResolver->resolve($request->getUri(), $relativeUri);
+        $originalUri = $request->getUri();
+        $location = $this->uriResolver->resolve($originalUri, $relativeUri);
         $request = $request->withUri($location);
 
         if (in_array($response->getStatusCode(), $options->redirectToGetStatusCodes)) {
@@ -308,8 +310,16 @@ class Client implements ClientInterface
                 ->withBody(new EmptyStream())
                 ->withoutHeader("Content-Length")
                 ->withoutHeader("Content-Type")
-                ->withoutHeader("Content-Encoding");
+                ->withoutHeader("Content-Encoding")
+                ->withoutHeader("Content-Language")
+                ->withoutHeader("Content-Location");
             return $this->doSendRequest($request, $options, $redirects + 1);
+        }
+
+        if (!$this->compareOrigin($originalUri, $location)) {
+            $request = $request
+                ->withoutHeader("Authorization")
+                ->withoutHeader("Cookie");
         }
 
         try {
@@ -319,6 +329,41 @@ class Client implements ClientInterface
         }
 
         return $this->doSendRequest($request, $options, $redirects + 1);
+    }
+
+    /**
+     * Check if two URIs have the same origin
+     *
+     * @param UriInterface $a
+     * @param UriInterface $b
+     * @return bool
+     */
+    protected function compareOrigin(UriInterface $a, UriInterface $b): bool
+    {
+        $portA = $a->getPort() ?? $this->getDefaultPort($a);
+        $portB = $b->getPort() ?? $this->getDefaultPort($b);
+        return strcasecmp($a->getScheme(), $b->getScheme()) === 0 &&
+            strcasecmp($a->getHost(), $b->getHost()) === 0 &&
+            $portA === $portB;
+    }
+
+    /**
+     * Get the default port for a URI scheme
+     * Calling getPort on a UriInterface may or may not return the default port
+     * for the used scheme. To compare origins correctly, we need to know the default port.
+     *
+     * @param UriInterface $uri
+     * @return int|null
+     */
+    protected function getDefaultPort(UriInterface $uri): ?int
+    {
+        if ($uri->getScheme() === 'https') {
+            return 443;
+        }
+        if ($uri->getScheme() === 'http') {
+            return 80;
+        }
+        return null;
     }
 
     /**

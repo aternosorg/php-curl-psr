@@ -5,11 +5,13 @@ namespace Tests;
 use Aternos\CurlPsr\Exception\RequestException;
 use Aternos\CurlPsr\Exception\RequestRedirectedException;
 use Aternos\CurlPsr\Psr7\Stream\StringStream;
+use Aternos\CurlPsr\Psr7\Uri;
 use Exception;
 use PHPUnit\Framework\Attributes\TestWith;
 use Psr\Http\Client\NetworkExceptionInterface;
 use Psr\Http\Client\RequestExceptionInterface;
 use Psr\Http\Message\RequestInterface;
+use ReflectionClass;
 use RuntimeException;
 use Tests\Stream\HashWriteStream;
 use Tests\Stream\PredefinedChunkStream;
@@ -525,6 +527,11 @@ class HttpClientTest extends HttpClientTestCase
             ->setRequestBodySink($body2);
 
         $request = $this->requestFactory->createRequest("POST", "https://example.com")
+            ->withHeader("Content-Length", "8")
+            ->withHeader("Content-Type", "text/plain")
+            ->withHeader("Content-Encoding", "identity")
+            ->withHeader("Content-Language", "en")
+            ->withHeader("Content-Location", "/some/location")
             ->withBody($this->streamFactory->createStream("test1234"));
         $this->client->sendRequest($request);
 
@@ -532,6 +539,12 @@ class HttpClientTest extends HttpClientTestCase
         $this->assertEquals("https://example.com/redirect", (string)$target->getOption(CURLOPT_URL));
         $this->assertEquals("test1234", (string) $body1);
         $this->assertEquals("", (string) $body2);
+
+        $this->assertNull($target->getRequestHeader("Content-Length"));
+        $this->assertNull($target->getRequestHeader("Content-Type"));
+        $this->assertNull($target->getRequestHeader("Content-Encoding"));
+        $this->assertNull($target->getRequestHeader("Content-Language"));
+        $this->assertNull($target->getRequestHeader("Content-Location"));
     }
 
     public function testRedirectToGetIfConfigured(): void
@@ -641,5 +654,31 @@ class HttpClientTest extends HttpClientTestCase
         $this->expectException(RequestException::class);
         $this->expectExceptionMessage("Could not close request before redirect");
         $this->client->sendRequest($request);
+    }
+
+    public function testRedirectToNewOriginRemovesAuthorizationAndCookie(): void
+    {
+        $this->curlHandle->setInfo(["http_code" => 302])
+            ->setResponseHeaders([
+                "Location: https://example1.com/redirect"
+            ]);
+
+        $target = $this->curlHandleFactory->nextTestHandle();
+
+        $request = $this->requestFactory->createRequest("POST", "https://example.com")
+            ->withHeader("Authorization", "Bearer token")
+            ->withHeader("Cookie", "sessionid=1234");
+        $this->client->sendRequest($request);
+
+        $this->assertNull($target->getRequestHeader("Authorization"));
+        $this->assertNull($target->getRequestHeader("Cookie"));
+    }
+
+    public function testGetDefaultPort(): void
+    {
+        $reflection = new ReflectionClass($this->client);
+        $this->assertEquals(443, $reflection->getMethod("getDefaultPort")->invoke($this->client, new Uri("https://example.com")));
+        $this->assertEquals(80, $reflection->getMethod("getDefaultPort")->invoke($this->client, new Uri("http://example.com")));
+        $this->assertNull($reflection->getMethod("getDefaultPort")->invoke($this->client, new Uri("ftp://example.com")));
     }
 }
