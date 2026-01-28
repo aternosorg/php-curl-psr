@@ -2,7 +2,9 @@
 
 namespace Aternos\CurlPsr\Psr18\UriResolver;
 
+use Aternos\CurlPsr\Exception\UriResolutionExceptionInterface;
 use Psr\Http\Message\UriInterface;
+use Throwable;
 
 interface UriResolverInterface
 {
@@ -12,6 +14,7 @@ interface UriResolverInterface
      *
      * @param UriInterface $baseUri
      * @param UriInterface $relativeUri
+     * @throws UriResolutionExceptionInterface
      * @return UriInterface
      */
     public function resolve(UriInterface $baseUri, UriInterface $relativeUri): UriInterface;

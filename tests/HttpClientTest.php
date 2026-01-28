@@ -4,6 +4,7 @@ namespace Tests;
 
 use Aternos\CurlPsr\Exception\RequestException;
 use Aternos\CurlPsr\Exception\RequestRedirectedException;
+use Aternos\CurlPsr\Exception\UriResolutionException;
 use Aternos\CurlPsr\Psr7\Stream\StringStream;
 use Aternos\CurlPsr\Psr7\Uri;
 use Exception;
@@ -16,6 +17,7 @@ use RuntimeException;
 use Tests\Stream\HashWriteStream;
 use Tests\Stream\PredefinedChunkStream;
 use Tests\Stream\RandomDataStream;
+use Tests\Util\TestUriResolver;
 
 class HttpClientTest extends HttpClientTestCase
 {
@@ -432,8 +434,8 @@ class HttpClientTest extends HttpClientTestCase
 
         $this->assertEquals("POST", $target->getOption(CURLOPT_CUSTOMREQUEST));
         $this->assertEquals("https://example.com/redirect", (string)$target->getOption(CURLOPT_URL));
-        $this->assertEquals("test1234", (string) $body1);
-        $this->assertEquals("test1234", (string) $body2);
+        $this->assertEquals("test1234", (string)$body1);
+        $this->assertEquals("test1234", (string)$body2);
     }
 
     public function testDisableRedirects(): void
@@ -537,8 +539,8 @@ class HttpClientTest extends HttpClientTestCase
 
         $this->assertEquals("GET", $target->getOption(CURLOPT_CUSTOMREQUEST));
         $this->assertEquals("https://example.com/redirect", (string)$target->getOption(CURLOPT_URL));
-        $this->assertEquals("test1234", (string) $body1);
-        $this->assertEquals("", (string) $body2);
+        $this->assertEquals("test1234", (string)$body1);
+        $this->assertEquals("", (string)$body2);
 
         $this->assertEquals(0, $target->getRequestHeader("Content-Length"));
         $this->assertNull($target->getRequestHeader("Content-Type"));
@@ -580,11 +582,28 @@ class HttpClientTest extends HttpClientTestCase
     {
         $this->curlHandle->setInfo(["http_code" => 303])
             ->setResponseHeaders([
-                "Location: http://"
+                "Location: \\"
             ]);
 
         $this->expectException(RequestException::class);
         $this->expectExceptionMessage("Invalid location header in redirect");
+        $request = $this->requestFactory->createRequest("GET", "https://example.com");
+        $this->client->sendRequest($request);
+    }
+
+    public function testThrowOnRedirectResolutionError(): void
+    {
+        $this->curlHandle->setInfo(["http_code" => 303])
+            ->setResponseHeaders([
+                "Location: test"
+            ]);
+
+        $reflection = new ReflectionClass($this->client);
+        $reflection->getProperty("uriResolver")->setValue($this->client, new TestUriResolver()
+            ->addResult(new UriResolutionException(new Uri("https://example.com"), new Uri("Test"))));
+
+        $this->expectException(RequestException::class);
+        $this->expectExceptionMessage("Could not resolve redirect location");
         $request = $this->requestFactory->createRequest("GET", "https://example.com");
         $this->client->sendRequest($request);
     }

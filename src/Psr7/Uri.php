@@ -4,7 +4,18 @@ namespace Aternos\CurlPsr\Psr7;
 
 use InvalidArgumentException;
 use Psr\Http\Message\UriInterface;
+use Uri\InvalidUriException;
 
+/**
+ * This class is a wrapper around the \Uri\Rfc3986\Uri class from ext-uri that implements the PSR-7 UriInterface.
+ * While both a similar, there are some differences in behavior and encoding that need to be handled.
+ *  - ext-uri only accepts already percent-encoded strings for its components, while PSR-7 expects implementations
+ *   to detect if the string is already percent-encoded or not and encode it if necessary.
+ * - ext-uri does not remove the default port for http (80) and https (443) when getting the port,
+ *   while PSR-7 expects the default port to be removed.
+ * - ext-uri requires a host to be set when setting user info, port or path. PSR-7 does not specify this behavior,
+ *   but most implementations allow setting these components without a host.
+ */
 class Uri implements UriInterface
 {
     const string SUB_DELIMITERS = "!\$&'\(\)\*\+,;=";
@@ -12,58 +23,22 @@ class Uri implements UriInterface
     const string DIGIT = "0-9";
     const string UNRESERVED_CHARACTERS = self::ALPHA . self::DIGIT . "\-\._~";
 
-    protected string $scheme = "";
-    protected string $user = "";
-    protected ?string $password = "";
-    protected string $host = "";
-    protected ?int $port = null;
-    protected string $path = "";
-    protected string $query = "";
-    protected string $fragment = "";
+    protected \Uri\Rfc3986\Uri $uri;
 
     /**
-     * @param string|null $uri
+     * @param string|\Uri\Rfc3986\Uri $uri
      */
-    public function __construct(?string $uri = null)
+    public function __construct(
+        string|\Uri\Rfc3986\Uri $uri = ""
+    )
     {
-        if ($uri !== null) {
-            $this->parse($uri);
+        if (is_string($uri)) {
+            $uri = \Uri\Rfc3986\Uri::parse($uri);
+            if ($uri === null) {
+                throw new InvalidArgumentException("Invalid URI: " . $uri);
+            }
         }
-    }
-
-    /**
-     * @param string $uri
-     * @return $this
-     */
-    protected function parse(string $uri): static
-    {
-        $parsed = parse_url($uri);
-        if ($parsed === false) {
-            throw new InvalidArgumentException("Invalid URI " . $uri);
-        }
-
-        if (isset($parsed["scheme"])) {
-            $this->setScheme($parsed["scheme"]);
-        }
-        if (isset($parsed["user"])) {
-            $this->setUserInfo($parsed["user"], $parsed["pass"] ?? null);
-        }
-        if (isset($parsed["host"])) {
-            $this->setHost($parsed["host"]);
-        }
-        if (isset($parsed["port"])) {
-            $this->setPort($parsed["port"]);
-        }
-        if (isset($parsed["path"])) {
-            $this->setPath($parsed["path"]);
-        }
-        if (isset($parsed["query"])) {
-            $this->setQuery($parsed["query"]);
-        }
-        if (isset($parsed["fragment"])) {
-            $this->setFragment($parsed["fragment"]);
-        }
-        return $this;
+        $this->uri = $uri;
     }
 
     /**
@@ -71,7 +46,7 @@ class Uri implements UriInterface
      * @param string $pattern
      * @return string
      */
-    protected function encode(string $string, string $pattern) : string
+    protected function encodeString(string $string, string $pattern) : string
     {
         $result = "";
         $length = strlen($string);
@@ -96,110 +71,17 @@ class Uri implements UriInterface
     }
 
     /**
-     * @param int|null $port
-     * @return void
+     * @param \Uri\Rfc3986\Uri $uri
+     * @return $this
      */
-    protected function setPort(?int $port): void
+    protected function cloneWithUri(\Uri\Rfc3986\Uri $uri): static
     {
-        if ($port === null) {
-            $this->port = null;
-            return;
-        }
-        if ($port < 0 || $port > 65535) {
-            throw new InvalidArgumentException("Invalid port " . $port);
-        }
-        $this->port = $port;
-    }
-
-    /**
-     * @param string $scheme
-     * @return void
-     */
-    protected function setScheme(string $scheme): void
-    {
-        $scheme = strtolower($scheme);
-        if (!preg_match("#^[" . static::ALPHA . "][" . static::ALPHA . static::DIGIT . "+\-.]*$#", $scheme)) {
-            throw new InvalidArgumentException("Invalid scheme " . $scheme);
-        }
-        $this->scheme = $scheme;
-    }
-
-    /**
-     * @param string $user
-     * @param string|null $password
-     * @return void
-     */
-    protected function setUserInfo(string $user, ?string $password): void
-    {
-        $pattern = "#[" . static::UNRESERVED_CHARACTERS . static::SUB_DELIMITERS . "]#";
-        if (strlen($user) === 0) {
-            $this->user = "";
-            $this->password = null;
-            return;
-        }
-
-        $this->user = $this->encode($user, $pattern);
-        if ($password === null || strlen($password) === 0) {
-            $this->password = null;
-            return;
-        }
-
-        $this->password = $this->encode($password, $pattern);
-    }
-
-    /**
-     * @param string $host
-     * @return void
-     */
-    protected function setHost(string $host): void
-    {
-        $host = strtolower($host);
-        if (strlen($host) === 0) {
-            $this->host = "";
-            return;
-        }
-
-        if (str_starts_with($host, "[") && str_ends_with($host, "]")) {
-            if (!filter_var(substr($host, 1, -1), FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
-                throw new InvalidArgumentException("Invalid host " . $host);
-            }
-            $this->host = $host;
-            return;
-        }
-
-        if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            $this->host = $host;
-            return;
-        }
-
-        $this->host = $this->encode($host, "#[^" . static::UNRESERVED_CHARACTERS . static::SUB_DELIMITERS . "]#");
-    }
-
-    /**
-     * @param string $path
-     * @return void
-     */
-    protected function setPath(string $path): void
-    {
-        $this->path = $this->encode($path, "#[^" . static::UNRESERVED_CHARACTERS . static::SUB_DELIMITERS . ":@/" . "]#");
-    }
-
-    /**
-     * @param string $query
-     * @return void
-     */
-    protected function setQuery(string $query): void
-    {
-        $this->query = $this->encode($query, "#[^" . static::UNRESERVED_CHARACTERS . static::SUB_DELIMITERS . ":@/?]" . "#");
-    }
-
-    /**
-     * @param string $fragment
-     * @return void
-     */
-    protected function setFragment(string $fragment): void
-    {
-        $this->fragment = $this->encode($fragment, "#[^" . static::UNRESERVED_CHARACTERS . static::SUB_DELIMITERS . ":@/?]" . "#");
+        $clone = clone $this;
+        $clone->uri = $uri;
+        return $clone;
+        /*return clone($this, [
+            "uri" => $uri
+        ]);*/
     }
 
     /**
@@ -207,7 +89,7 @@ class Uri implements UriInterface
      */
     public function getScheme(): string
     {
-        return $this->scheme;
+        return $this->uri->getScheme() ?? "";
     }
 
     /**
@@ -219,10 +101,6 @@ class Uri implements UriInterface
         $host = $this->getHost();
         $port = $this->getPort();
 
-        if ($host === "") {
-            return "";
-        }
-
         $authority = "";
         if ($userInfo !== "") {
             $authority .= $userInfo . "@";
@@ -231,6 +109,7 @@ class Uri implements UriInterface
         if ($port !== null) {
             $authority .= ":" . $port;
         }
+
         return $authority;
     }
 
@@ -239,15 +118,7 @@ class Uri implements UriInterface
      */
     public function getUserInfo(): string
     {
-        if ($this->user === "") {
-            return "";
-        }
-
-        $userInfo = $this->user;
-        if ($this->password !== null) {
-            $userInfo .= ":" . $this->password;
-        }
-        return $userInfo;
+        return $this->uri->getUserInfo() ?? "";
     }
 
     /**
@@ -255,7 +126,7 @@ class Uri implements UriInterface
      */
     public function getHost(): string
     {
-        return $this->host;
+        return $this->uri->getHost() ?? "";
     }
 
     /**
@@ -263,13 +134,15 @@ class Uri implements UriInterface
      */
     public function getPort(): ?int
     {
-        if ($this->scheme === "http" && $this->port === 80) {
+        $port = $this->uri->getPort();
+        $scheme = $this->getScheme();
+        if ($scheme === "http" && $port === 80) {
             return null;
         }
-        if ($this->scheme === "https" && $this->port === 443) {
+        if ($scheme === "https" && $port === 443) {
             return null;
         }
-        return $this->port;
+        return $port;
     }
 
     /**
@@ -277,18 +150,7 @@ class Uri implements UriInterface
      */
     public function getPath(): string
     {
-        $path = $this->path;
-        $authority = $this->getAuthority();
-        if ($path !== "") {
-            if (!str_starts_with($path, "/")) {
-                if ($authority !== "") {
-                    return "/" . $path;
-                }
-            } else if ($authority === "") {
-                return preg_replace("#^/+#", "/", $path);
-            }
-        }
-        return $path;
+        return $this->uri->getPath();
     }
 
     /**
@@ -296,7 +158,7 @@ class Uri implements UriInterface
      */
     public function getQuery(): string
     {
-        return $this->query;
+        return $this->uri->getQuery() ?? "";
     }
 
     /**
@@ -304,7 +166,7 @@ class Uri implements UriInterface
      */
     public function getFragment(): string
     {
-        return $this->fragment;
+        return $this->uri->getFragment() ?? "";
     }
 
     /**
@@ -312,13 +174,19 @@ class Uri implements UriInterface
      */
     public function withScheme(string $scheme): UriInterface
     {
-        if ($this->scheme === $scheme) {
+        if ($scheme === "") {
+            $scheme = null;
+        }
+
+        if ($this->uri->getRawScheme() === $scheme) {
             return $this;
         }
 
-        $new = clone $this;
-        $new->setScheme($scheme);
-        return $new;
+        try {
+            return $this->cloneWithUri($this->uri->withScheme($scheme));
+        } catch (InvalidUriException $e) {
+            throw new InvalidArgumentException("Invalid scheme: " . $scheme, previous: $e);
+        }
     }
 
     /**
@@ -326,17 +194,26 @@ class Uri implements UriInterface
      */
     public function withUserInfo(string $user, ?string $password = null): UriInterface
     {
-        if ($user === "" && $this->user === "") {
+        $pattern = "#[^" . static::UNRESERVED_CHARACTERS . static::SUB_DELIMITERS . "]#";
+        if ($user === "") {
+            $userInfo = null;
+        } else {
+            $userInfo = $this->encodeString($user, $pattern);
+            if ($password !== null) {
+                $userInfo .= ":" . $this->encodeString($password, $pattern);
+            }
+        }
+
+        if ($this->uri->getRawUserInfo() === $userInfo) {
             return $this;
         }
 
-        if ($password === null || strlen($password) === 0) {
-            $password = null;
+        $uri = $this->uri;
+        if ($uri->getHost() === null && $userInfo !== null) {
+            $uri = $uri->withHost("");
         }
 
-        $new = clone $this;
-        $new->setUserInfo($user, $password);
-        return $new;
+        return $this->cloneWithUri($uri->withUserInfo($userInfo));
     }
 
     /**
@@ -344,13 +221,19 @@ class Uri implements UriInterface
      */
     public function withHost(string $host): UriInterface
     {
-        if ($this->host === $host) {
+        if ($host === "") {
+            $host = null;
+        }
+
+        if ($this->uri->getRawHost() === $host) {
             return $this;
         }
 
-        $new = clone $this;
-        $new->setHost($host);
-        return $new;
+        try {
+            return $this->cloneWithUri($this->uri->withHost($host));
+        } catch (InvalidUriException $e) {
+            throw new InvalidArgumentException("Invalid host: " . $host, previous: $e);
+        }
     }
 
     /**
@@ -358,13 +241,20 @@ class Uri implements UriInterface
      */
     public function withPort(?int $port): UriInterface
     {
-        if ($port === $this->port) {
+        if ($this->uri->getPort() === $port) {
             return $this;
         }
 
-        $new = clone $this;
-        $new->setPort($port);
-        return $new;
+        $uri = $this->uri;
+        if ($uri->getHost() === null && $port !== null) {
+            $uri = $uri->withHost("");
+        }
+
+        try {
+            return $this->cloneWithUri($uri->withPort($port));
+        } catch (InvalidUriException $e) {
+            throw new InvalidArgumentException("Invalid port: " . $port, previous: $e);
+        }
     }
 
     /**
@@ -372,13 +262,22 @@ class Uri implements UriInterface
      */
     public function withPath(string $path): UriInterface
     {
-        if ($this->path === $path) {
+        $path = $this->encodeString($path, "#[^" . static::UNRESERVED_CHARACTERS . static::SUB_DELIMITERS . ":@/" . "]#");
+        if ($this->uri->getRawPath() === $path) {
             return $this;
         }
 
-        $new = clone $this;
-        $new->setPath($path);
-        return $new;
+        if ($this->uri->getHost() !== null && $path !== "" && $path[0] !== "/") {
+            $path = "/" . $path;
+        }
+
+        try {
+            return $this->cloneWithUri($this->uri->withPath($path));
+            // @codeCoverageIgnoreStart
+        } catch (InvalidUriException $e) {
+            throw new InvalidArgumentException("Invalid path: " . $path, previous: $e);
+            // @codeCoverageIgnoreEnd
+        }
     }
 
     /**
@@ -386,13 +285,23 @@ class Uri implements UriInterface
      */
     public function withQuery(string $query): UriInterface
     {
-        if ($this->query === $query) {
+        if ($query === "") {
+            $query = null;
+        } else {
+            $query = $this->encodeString($query, "#[^" . static::UNRESERVED_CHARACTERS . static::SUB_DELIMITERS . ":@/?]" . "#");
+        }
+
+        if ($this->uri->getRawQuery() === $query) {
             return $this;
         }
 
-        $new = clone $this;
-        $new->setQuery($query);
-        return $new;
+        try {
+            return $this->cloneWithUri($this->uri->withQuery($query));
+            // @codeCoverageIgnoreStart
+        } catch (InvalidUriException $e) {
+            throw new InvalidArgumentException("Invalid query: " . $query, previous: $e);
+            // @codeCoverageIgnoreEnd
+        }
     }
 
     /**
@@ -400,13 +309,23 @@ class Uri implements UriInterface
      */
     public function withFragment(string $fragment): UriInterface
     {
-        if ($this->fragment === $fragment) {
+        if ($fragment === "") {
+            $fragment = null;
+        } else {
+            $fragment = $this->encodeString($fragment, "#[^" . static::UNRESERVED_CHARACTERS . static::SUB_DELIMITERS . ":@/?]" . "#");
+        }
+
+        if ($this->uri->getRawFragment() === $fragment) {
             return $this;
         }
 
-        $new = clone $this;
-        $new->setFragment($fragment);
-        return $new;
+        try {
+            return $this->cloneWithUri($this->uri->withFragment($fragment));
+            // @codeCoverageIgnoreStart
+        } catch (InvalidUriException $e) {
+            throw new InvalidArgumentException("Invalid fragment: " . $fragment, previous: $e);
+            // @codeCoverageIgnoreEnd
+        }
     }
 
     /**
@@ -414,27 +333,19 @@ class Uri implements UriInterface
      */
     public function __toString(): string
     {
-        $path = $this->getPath();
-        $authority = $this->getAuthority();
-        $scheme = $this->getScheme();
-        $query = $this->getQuery();
-        $fragment = $this->getFragment();
-
-        $uri = "";
-        if ($scheme !== "") {
-            $uri .= $scheme . ":";
-        }
-        if ($authority !== "") {
-            $uri .= "//" . $authority;
-        }
-        $uri .= $path;
-        if ($query !== "") {
-            $uri .= "?" . $query;
-        }
-        if ($fragment !== "") {
-            $uri .= "#" . $fragment;
+        $uri = $this->uri;
+        if ($this->getPort() === null && $uri->getPort() !== null) {
+            $uri = $uri->withPort(null);
         }
 
-        return $uri;
+        return $uri->toRawString();
+    }
+
+    /**
+     * @return \Uri\Rfc3986\Uri
+     */
+    public function getUri(): \Uri\Rfc3986\Uri
+    {
+        return $this->uri;
     }
 }

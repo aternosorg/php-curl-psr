@@ -9,6 +9,7 @@ use Aternos\CurlPsr\Exception\NetworkException;
 use Aternos\CurlPsr\Exception\RequestException;
 use Aternos\CurlPsr\Exception\RequestRedirectedException;
 use Aternos\CurlPsr\Exception\TooManyRedirectsException;
+use Aternos\CurlPsr\Exception\UriResolutionExceptionInterface;
 use Aternos\CurlPsr\Psr17\Psr17Factory;
 use Aternos\CurlPsr\Psr18\UriResolver\UriResolver;
 use Aternos\CurlPsr\Psr18\UriResolver\UriResolverInterface;
@@ -302,7 +303,11 @@ class Client implements ClientInterface
         }
 
         $originalUri = $request->getUri();
-        $location = $this->uriResolver->resolve($originalUri, $relativeUri);
+        try {
+            $location = $this->uriResolver->resolve($originalUri, $relativeUri);
+        } catch (UriResolutionExceptionInterface $e) {
+            throw new RequestException($request, "Could not resolve redirect location", previous: $e);
+        }
         $request = $request->withUri($location);
 
         if (in_array($response->getStatusCode(), $options->redirectToGetStatusCodes)) {

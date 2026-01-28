@@ -2,10 +2,14 @@
 
 namespace Tests;
 
+use Aternos\CurlPsr\Exception\UriResolutionExceptionInterface;
 use Aternos\CurlPsr\Psr17\Psr17Factory;
 use Aternos\CurlPsr\Psr18\UriResolver\UriResolver;
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\UriInterface;
+use Tests\Util\TestUri;
 
 class UriResolverTest extends TestCase
 {
@@ -45,5 +49,48 @@ class UriResolverTest extends TestCase
         $relativeUri = $factory->createUri($relativeUri);
         $resolvedUri = $resolver->resolve($baseUri, $relativeUri);
         $this->assertEquals($expectedUri, (string)$resolvedUri);
+    }
+
+    public function testInvalidBaseUrl(): void
+    {
+        $factory = new Psr17Factory();
+        $base = new TestUri($factory->createUri("https://example.com"))
+            ->addHook("__toString", "\\");
+        $relative = $factory->createUri("path");
+        $resolver = new UriResolver($factory);
+        $this->expectException(UriResolutionExceptionInterface::class);
+        $this->expectExceptionMessage("Could not create built-in URI from base URI");
+        $resolver->resolve($base, $relative);
+    }
+
+    public function testInvalidTargetUrl(): void
+    {
+        $factory = new Psr17Factory();
+        $base = $factory->createUri("https://example.com");
+        $relative = new TestUri($factory->createUri("path"))
+            ->addHook("__toString", "\\");
+        $resolver = new UriResolver($factory);
+        $this->expectException(UriResolutionExceptionInterface::class);
+        $this->expectExceptionMessage("Could not resolve URI relative to base URI");
+        $resolver->resolve($base, $relative);
+    }
+
+    public function testInvalidFinalUrl(): void
+    {
+        $factory = new Psr17Factory();
+        $base = $factory->createUri("https://example.com");
+        $relative = $factory->createUri("path");
+
+        $testFactory = new class extends Psr17Factory {
+            public function createUri(string $uri = ""): UriInterface
+            {
+                throw new InvalidArgumentException("Test exception");
+            }
+        };
+
+        $resolver = new UriResolver($testFactory);
+        $this->expectException(UriResolutionExceptionInterface::class);
+        $this->expectExceptionMessage("Could not create URI from resolved URI string");
+        $resolver->resolve($base, $relative);
     }
 }

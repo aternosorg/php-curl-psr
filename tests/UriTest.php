@@ -33,7 +33,7 @@ class UriTest extends TestCase
     public function testThrowsOnInvalidUrl(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        new Uri("http://");
+        new Uri("\\\\");
     }
 
     public function testThrowsOnInvalidPort(): void
@@ -53,6 +53,8 @@ class UriTest extends TestCase
 
     public function testUpdateUrl(): void
     {
+        $uri = $this->uri->withScheme("");
+        $this->assertEquals("", $uri->getScheme());
         $uri = $this->uri->withScheme("http");
         $this->assertEquals("http", $uri->getScheme());
 
@@ -60,7 +62,7 @@ class UriTest extends TestCase
         $this->assertEquals("newuser:newpassword", $uri->getUserInfo());
 
         $uri = $uri->withUserInfo("newuser", "");
-        $this->assertEquals("newuser", $uri->getUserInfo());
+        $this->assertEquals("newuser:", $uri->getUserInfo());
 
         $uri = $uri->withUserInfo("newuser");
         $this->assertEquals("newuser", $uri->getUserInfo());
@@ -74,6 +76,8 @@ class UriTest extends TestCase
         $uri = $uri->withPort(456);
         $this->assertEquals(456, $uri->getPort());
 
+        $uri = $uri->withPath("/new/p\\ath");
+        $this->assertEquals("/new/p%5Cath", $uri->getPath());
         $uri = $uri->withPath("/new/path");
         $this->assertEquals("/new/path", $uri->getPath());
 
@@ -96,18 +100,8 @@ class UriTest extends TestCase
 
     public function testPathStartsWithSlashIfAuthorityIsSet(): void
     {
-        $uri = $this->uri->withPath("test");
+        $uri = $this->uri->withPath("/test");
         $this->assertEquals("https://user:password@example.com:123/test?query=string#fragment", (string)$uri);
-    }
-
-    public function testRemoveDuplicateStartSlashesIfAuthorityIsMissing(): void
-    {
-        $uri = $this->uri
-            ->withHost("")
-            ->withPort(443)
-            ->withUserInfo("")
-            ->withPath("///test/path");
-        $this->assertEquals("https:/test/path?query=string#fragment", (string)$uri);
     }
 
     public function testDoesNotDoubleEncode(): void
@@ -128,6 +122,12 @@ class UriTest extends TestCase
         $this->uri->withScheme("1http");
     }
 
+    public function testThrowOnInvalidUserInfo(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->uri->withHost("")->withUserInfo("\\\\");
+    }
+
     public function testUseIpv4Host(): void
     {
         $uri = $this->uri->withHost("127.0.0.1");
@@ -139,9 +139,50 @@ class UriTest extends TestCase
     {
         $uri = $this->uri->withHost("[::1]");
         $this->assertEquals("[::1]", $uri->getHost());
-        $this->assertEquals("https://user:password@[::1]:123/test/path?query=string#fragment", (string)$uri);
+        $this->assertEquals("https://user:password@[0000:0000:0000:0000:0000:0000:0000:0001]:123/test/path?query=string#fragment", (string)$uri);
 
         $this->expectException(InvalidArgumentException::class);
         $uri->withHost("[127.0.0.1]");
+    }
+
+    public function testSetUserInfoWithoutHost(): void
+    {
+        $uri = new Uri("");
+        $uri = $uri->withUserInfo("user", "password");
+        $this->assertEquals("user:password@", $uri->getAuthority());
+        $this->assertEquals("//user:password@", (string)$uri);
+    }
+
+    public function testSetPortWithoutHost(): void
+    {
+        $uri = new Uri("");
+        $uri = $uri->withPort(8080);
+        $this->assertEquals(":8080", $uri->getAuthority());
+        $this->assertEquals("//:8080", (string)$uri);
+    }
+
+    public function testMakePathAbsoluteIfHostIsSet(): void
+    {
+        $uri = new Uri("");
+        $uri = $uri->withPath("relative/path");
+        $this->assertEquals("relative/path", $uri->getPath());
+
+        $uri = $uri->withHost("example.com");
+        $this->assertEquals("/relative/path", $uri->getPath());
+
+        $uri = $uri->withPath("test");
+        $this->assertEquals("/test", $uri->getPath());
+    }
+
+    public function testRemoveQuery(): void
+    {
+        $uri = $this->uri->withQuery("");
+        $this->assertEquals("", $uri->getQuery());
+    }
+
+    public function testRemoveFragment(): void
+    {
+        $uri = $this->uri->withFragment("");
+        $this->assertEquals("", $uri->getFragment());
     }
 }
